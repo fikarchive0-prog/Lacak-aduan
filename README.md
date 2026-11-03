@@ -234,5 +234,6 @@ Belum ada perintah build atau test otomatis yang dikonfigurasi dalam proyek. Per
 ## Lisensi
 
 Proyek ini dibuat untuk demonstrasi internal dan pembelajaran. Gunakan dengan bijak dan jangan langsung menganggapnya siap dipakai untuk sistem layanan publik nyata tanpa review keamanan, privasi, dan prosedur operasional yang sesuai.
-#   L a c a k - a d u a n  
- 
+#� �L�a�c�a�k�-�a�d�u�a�n�
+�
+�
