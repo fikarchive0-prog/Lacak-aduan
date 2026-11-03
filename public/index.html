@@ -133,14 +133,13 @@
 
 <section id="petugas" hidden>
   <div id="staff-login-view" class="login-layout">
-    <div class="login-copy"><span class="label-chip">AREA KERJA PETUGAS</span><h1>Ruang kerja petugas.</h1><p class="lead">Masuk untuk mengelola aduan, menetapkan prioritas, dan mencatat tindak lanjut.</p><p class="security-note">Gunakan akun yang tersedia untuk akses pengelolaan aduan.</p></div>
+    <div class="login-copy"><span class="label-chip">AREA KERJA PETUGAS</span><h1>Ruang kerja petugas.</h1><p class="lead">Masuk untuk mengelola aduan, menetapkan prioritas, dan mencatat tindak lanjut.</p><p class="security-note">Akses petugas diverifikasi oleh server.</p></div>
     <form id="f-login" class="login-form" autocomplete="off">
       <h2>Masuk ke akun</h2>
-      <label for="login-user">Nama pengguna</label><input id="login-user" required autocomplete="username" placeholder="petugas atau admin">
+      <label for="login-user">Email</label><input id="login-user" type="email" required autocomplete="username" placeholder="nama@instansi.go.id">
       <label for="login-pass">Kata sandi</label><input id="login-pass" type="password" required autocomplete="current-password" placeholder="Masukkan kata sandi akun">
       <p class="msg" id="login-error" role="alert"></p>
       <button class="btn" type="submit">Masuk</button>
-      <div class="account-list"><b>Akun yang tersedia</b><span>Petugas: <code>petugas</code> / <code>aduan123</code></span><span>Admin: <code>admin</code> / <code>admin123</code></span></div>
     </form>
   </div>
   <div id="staff-workspace" hidden>

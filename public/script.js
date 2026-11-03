@@ -19,22 +19,6 @@ const CAT_CONFIG = {
   "Layanan administrasi": { unit: "Bagian Pelayanan Kelurahan", days: 5 },
   Lainnya: { unit: "Koordinasi Lintas Instansi", days: 7 },
 };
-const APP_USERS = [
-  {
-    username: "admin",
-    password: "admin123",
-    name: "Admin Sukamaju",
-    role: "admin",
-    unit: "Semua unit",
-  },
-  {
-    username: "petugas",
-    password: "aduan123",
-    name: "Rani Pratama",
-    role: "petugas",
-    unit: "Seksi Pemeliharaan Jalan",
-  },
-];
 const $ = (id) => document.getElementById(id);
 const escapeHtml = (value) =>
   String(value ?? "").replace(
@@ -331,7 +315,7 @@ function makeSeed() {
   ];
 }
 
-function normalizeTicket(ticket, index) {
+function normalizeTicket(ticket) {
   const config = CAT_CONFIG[ticket.cat] || CAT_CONFIG.Lainnya;
   ticket.log = Array.isArray(ticket.log) && ticket.log.length ? ticket.log : [];
   ticket.priority = ["normal", "high", "urgent"].includes(ticket.priority)
@@ -341,11 +325,9 @@ function normalizeTicket(ticket, index) {
   ticket.waitingForInfo = Boolean(ticket.waitingForInfo);
   ticket.audit = Array.isArray(ticket.audit) ? ticket.audit : [];
   ticket.evidence = ticket.evidence || null;
-  ticket.coordinates = Array.isArray(ticket.coordinates)
+  ticket.coordinates = Array.isArray(ticket.coordinates) && ticket.coordinates.length === 2
     ? ticket.coordinates
-    : ticket.sampleData === false
-      ? null
-      : [-6.2 + (index % 5) * 0.003, 106.816 + (index % 7) * 0.003];
+    : null;
   if (!ticket.audit.length) {
     ticket.audit = ticket.log.map((entry) => ({
       kind: "status",
@@ -357,14 +339,45 @@ function normalizeTicket(ticket, index) {
   return ticket;
 }
 
-let tickets;
-try {
-  tickets = JSON.parse(localStorage.getItem(STORE_KEY));
-} catch {
-  tickets = null;
+let tickets = [];
+
+async function loadTicketsFromApi() {
+  try {
+    const payload = await apiRequest('/complaints');
+    return Array.isArray(payload) ? payload.map(normalizeTicket) : [];
+  } catch (error) {
+    console.error('Gagal memuat aduan dari backend:', error.message);
+    return [];
+  }
 }
-if (!Array.isArray(tickets) || !tickets.length) tickets = makeSeed();
-tickets = tickets.map(normalizeTicket);
+
+async function apiRequest(path, options = {}) {
+  const headers = { Accept: 'application/json', ...(options.headers || {}) };
+  const isJsonBody = options.body && typeof options.body === 'string' && !headers['Content-Type'];
+  if (isJsonBody) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  const response = await fetch(`/api${path.startsWith('/') ? path : `/${path}`}`, {
+    ...options,
+    credentials: 'same-origin',
+    headers,
+  });
+
+  const text = await response.text();
+  let payload = null;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    throw new Error(payload?.message || 'Permintaan API gagal.');
+  }
+
+  return payload;
+}
 
 let publicMap = null;
 let pickerMap = null;
@@ -374,12 +387,7 @@ let selectedBulkTicketCodes = new Set();
 let deleteTargetCodes = [];
 
 function save() {
-  try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(tickets));
-    return true;
-  } catch {
-    return false;
-  }
+  return true;
 }
 
 function addAudit(ticket, kind, by, note) {
@@ -510,16 +518,25 @@ function slip(ticket) {
   return `<article class="slip"><div class="slip-h"><div><div class="code">${escapeHtml(ticket.code)}</div><p class="meta">${escapeHtml(ticket.cat)}, ${escapeHtml(ticket.loc)}<br>Masuk ${formatDate(ticket.at)}<br>${location}</p></div><div class="stamp ${statusClass(ticket)}">${escapeHtml(statusLabel(ticket))}</div></div><div class="slip-b"><p class="issue">“${escapeHtml(ticket.text)}”</p><div class="case-tags"><span class="priority-tag ${priorityClass(ticket.priority)}">Prioritas ${priorityLabel(ticket.priority)}</span><span class="unit-tag">${escapeHtml(ticket.unit)}</span></div>${evidence ? `<div class="evidence-box">${evidence}</div>` : ""}<div class="age"><div class="${late ? "late-text" : ""}">${ageText}</div><div class="bar ${late ? "over" : ""}" role="img" aria-label="${progress} persen dari target waktu"><i style="width:${progress}%"></i></div></div>${waiting}<ol class="tl">${timeline(ticket)}${rejection}</ol>${isClosed(ticket) ? ratingMarkup(ticket) : ""}</div></article>`;
 }
 
-function showTicket(code) {
-  const ticket = tickets.find(
-    (item) => item.code === String(code).trim().toUpperCase(),
-  );
+async function showTicket(code) {
+  const normalizedCode = String(code).trim().toUpperCase();
   $("tmsg").textContent = "";
   $("result").innerHTML = "";
-  if (!ticket) {
-    $("tmsg").textContent =
-      `Nomor “${String(code).trim()}” tidak ditemukan. Periksa huruf dan angkanya, lalu coba lagi.`;
+  if (!normalizedCode) return;
+
+  let ticket;
+  try {
+    ticket = await apiRequest(`/complaints/${encodeURIComponent(normalizedCode)}`);
+  } catch (error) {
+    $("tmsg").textContent = error.message.includes('tidak ditemukan')
+      ? `Nomor “${String(code).trim()}” tidak ditemukan. Periksa huruf dan angkanya, lalu coba lagi.`
+      : error.message;
     return;
+  }
+  if (!currentSession()) {
+    const existingIndex = tickets.findIndex((item) => item.code === normalizedCode);
+    if (existingIndex < 0) tickets.push(normalizeTicket(ticket));
+    else tickets[existingIndex] = normalizeTicket(ticket);
   }
   $("q").value = ticket.code;
   $("result").innerHTML = slip(ticket);
@@ -926,7 +943,7 @@ function closeDeleteModal() {
   $("delete-modal").hidden = true;
 }
 
-function executeDeleteTicket() {
+async function executeDeleteTicket() {
   const user = currentSession();
   if (!user || user.role !== "admin") {
     $("smsg").textContent = "Hanya admin yang dapat menghapus aduan.";
@@ -937,6 +954,17 @@ function executeDeleteTicket() {
   const codes = deleteTargetCodes.length ? [...deleteTargetCodes] : $("s-t").value ? [$("s-t").value] : [];
   if (!codes.length) {
     $("smsg").textContent = "Pilih aduan yang ingin dihapus.";
+    closeDeleteModal();
+    return;
+  }
+
+  try {
+    await apiRequest('/staff/complaints', {
+      method: 'DELETE',
+      body: JSON.stringify({ codes }),
+    });
+  } catch (error) {
+    $("smsg").textContent = error.message;
     closeDeleteModal();
     return;
   }
@@ -1083,29 +1111,38 @@ function bindEvents() {
   });
 }
 
-function submitLogin(event) {
+async function submitLogin(event) {
   event.preventDefault();
-  const username = $("login-user").value.trim();
+  const email = $("login-user").value.trim();
   const password = $("login-pass").value;
-  const account = APP_USERS.find(
-    (user) => user.username === username && user.password === password,
-  );
-  if (!account) {
-    $("login-error").textContent =
-      "Akun tidak cocok. Periksa kembali nama pengguna dan kata sandi.";
-    return;
-  }
-  const { password: discarded, ...session } = account;
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
   $("login-error").textContent = "";
-  $("f-login").reset();
-  setStaffView();
+  try {
+    const result = await apiRequest('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(result.user));
+    tickets = (await apiRequest('/staff/complaints')).map(normalizeTicket);
+    $("f-login").reset();
+    setStaffView();
+  } catch (error) {
+    sessionStorage.removeItem(SESSION_KEY);
+    apiRequest('/auth/logout', { method: 'POST' }).catch(() => {});
+    $("login-error").textContent = error.message;
+  }
 }
 
-function logout() {
+async function logout() {
+  try {
+    await apiRequest('/auth/logout', { method: 'POST' });
+  } catch (error) {
+    console.warn('Logout request failed:', error.message);
+  }
   sessionStorage.removeItem(SESSION_KEY);
+  tickets = await loadTicketsFromApi();
   selectedTicketCode = "";
   setStaffView();
+  renderBoard();
   tab("petugas");
 }
 
@@ -1143,7 +1180,7 @@ async function submitNewTicket(event) {
       ? roundPublicPoint(latitude, longitude)
       : null;
   const at = todayIso();
-  const ticket = normalizeTicket(
+  let ticket = normalizeTicket(
     {
       code: nextCode(),
       cat: category,
@@ -1169,6 +1206,18 @@ async function submitNewTicket(event) {
     tickets.length,
   );
   addAudit(ticket, "created", "Sistem", "Aduan baru diterima.");
+
+  try {
+    ticket = await apiRequest('/complaints', {
+      method: 'POST',
+      body: JSON.stringify(ticket),
+    });
+  } catch (apiError) {
+    error.textContent = apiError.message;
+    return;
+  }
+
+  ticket = normalizeTicket(ticket);
   tickets.push(ticket);
   if (!save()) {
     tickets.pop();
@@ -1205,7 +1254,7 @@ async function submitNewTicket(event) {
   });
 }
 
-function submitResidentAction(event) {
+async function submitResidentAction(event) {
   const form = event.target.closest(".info-response-form");
   if (!form) return;
   event.preventDefault();
@@ -1215,12 +1264,19 @@ function submitResidentAction(event) {
   const originalTicket = JSON.stringify(ticket);
   ticket.infoResponse = { note, at: todayIso() };
   ticket.waitingForInfo = false;
-  addAudit(
-    ticket,
-    "citizen-response",
-    "Warga",
-    "Balasan atas permintaan informasi diterima.",
-  );
+
+  try {
+    const updated = await apiRequest(`/complaints/${ticket.code}/replies`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    });
+    Object.assign(ticket, updated || ticket);
+  } catch (error) {
+    Object.assign(ticket, JSON.parse(originalTicket));
+    $("tmsg").textContent = error.message;
+    return;
+  }
+
   if (!save()) {
     const restoredTicket = JSON.parse(originalTicket);
     Object.keys(ticket).forEach((key) => delete ticket[key]);
@@ -1232,7 +1288,7 @@ function submitResidentAction(event) {
   showTicket(ticket.code);
 }
 
-function submitRating(event) {
+async function submitRating(event) {
   event.preventDefault();
   const form = event.target;
   const ticket = tickets.find((item) => item.code === form.dataset.code);
@@ -1244,12 +1300,18 @@ function submitRating(event) {
     comment: String(data.get("comment") || "").trim(),
     at: todayIso(),
   };
-  addAudit(
-    ticket,
-    "rating",
-    "Warga",
-    `Penilaian layanan ${ticket.rating.score}/5 diterima.`,
-  );
+  try {
+    const updated = await apiRequest(`/complaints/${ticket.code}/ratings`, {
+      method: 'POST',
+      body: JSON.stringify(ticket.rating),
+    });
+    Object.assign(ticket, updated || ticket);
+  } catch (error) {
+    Object.assign(ticket, JSON.parse(originalTicket));
+    $("tmsg").textContent = error.message;
+    return;
+  }
+
   if (!save()) {
     const restoredTicket = JSON.parse(originalTicket);
     Object.keys(ticket).forEach((key) => delete ticket[key]);
@@ -1371,6 +1433,28 @@ async function submitStaffAction(event) {
       `Status diubah menjadi ${nextStatus === -1 ? "Ditolak" : ST[nextStatus]}.`,
     );
   }
+  try {
+    const updated = await apiRequest(`/staff/complaints/${ticket.code}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        operation,
+        note,
+        visibility,
+        status: operation === "update" ? Number($("s-st").value) : null,
+        priority: ticket.priority,
+        unit: ticket.unit,
+        evidence: ticket.evidence || null,
+      }),
+    });
+    Object.keys(ticket).forEach((key) => delete ticket[key]);
+    Object.assign(ticket, normalizeTicket(updated));
+  } catch (error) {
+    restoreTicket();
+    $("smsg").textContent = error.message;
+    renderDashboard();
+    return;
+  }
+
   if (!save()) {
     restoreTicket();
     $("smsg").textContent =
@@ -1413,12 +1497,20 @@ function locateUser() {
   );
 }
 
-function initialize() {
+async function initialize() {
   setupTheme();
   startLiveClock();
   $("n-cat").innerHTML = CATS.map(
     (category) => `<option>${escapeHtml(category)}</option>`,
   ).join("");
+  tickets = await loadTicketsFromApi();
+  try {
+    const { user } = await apiRequest('/auth/me');
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(user));
+    tickets = (await apiRequest('/staff/complaints')).map(normalizeTicket);
+  } catch {
+    sessionStorage.removeItem(SESSION_KEY);
+  }
   bindEvents();
   renderBoard();
   setStaffView();
