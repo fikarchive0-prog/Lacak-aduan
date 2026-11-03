@@ -39,7 +39,7 @@ app.get('*', (req, res, next) => {
 });
 
 app.use((error, req, res, next) => {
-  console.error(error);
+  if (error.code !== 'FIREBASE_CONFIG_MISSING') console.error(error);
   const status = error.status || (error.code === 'FIREBASE_CONFIG_MISSING' ? 503 : 500);
   res.status(status).json({
     message: status === 503
@@ -48,7 +48,11 @@ app.use((error, req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server berjalan di http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server berjalan di http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;
 

@@ -21,7 +21,7 @@ server.js               Entry point Express
 2. Aktifkan **Authentication → Sign-in method → Email/Password** dan buat akun petugas melalui Firebase Authentication.
 3. Buat Service Account key hanya setelah key yang pernah terekspos sudah dicabut. Simpan file secara aman sebagai `serviceAccountKey.json` untuk lokal. File itu sudah masuk `.gitignore`; jangan commit atau membagikannya.
 4. Di Realtime Database → Rules, terapkan isi `database.rules.json`. Server memakai Admin SDK dan dapat mengakses database; klien browser tidak mendapat akses langsung.
-5. Salin `.env.example` ke `.env`, lalu isi `FIREBASE_DATABASE_URL` dan `FIREBASE_WEB_API_KEY` dari konfigurasi Firebase Web App. Untuk penggunaan lokal, `GOOGLE_APPLICATION_CREDENTIALS=./serviceAccountKey.json` menunjuk ke key privat lokal.
+5. Salin `.env.example` ke `.env`, lalu isi `FIREBASE_DATABASE_URL` dan `FIREBASE_WEB_API_KEY` dari konfigurasi Firebase Web App. Untuk lokal, `GOOGLE_APPLICATION_CREDENTIALS=./serviceAccountKey.json` menunjuk ke key privat lokal. Jangan pernah meng-commit key tersebut.
 
 Contoh `.env`:
 
@@ -58,13 +58,16 @@ npm start
 
 Buka `http://localhost:3000`. Jika Firebase environment belum diatur, halaman dapat terbuka tetapi endpoint data akan memberi respons konfigurasi belum tersedia.
 
-## Deploy ke Render
+## Deploy ke Vercel
 
-1. Push source ke branch GitHub yang akan dideploy. Jangan tambahkan `.env` atau `serviceAccountKey.json`.
-2. Di Render pilih **New → Web Service**, hubungkan repository, lalu atur Build Command `npm install` dan Start Command `npm start`.
-3. Tambahkan environment variables `NODE_ENV=production`, `FIREBASE_DATABASE_URL`, dan `FIREBASE_WEB_API_KEY`.
-4. Tambahkan JSON Service Account sebagai **Secret File** bernama `serviceAccountKey.json`, lalu set `GOOGLE_APPLICATION_CREDENTIALS` ke path Secret File yang ditampilkan Render. Jangan memasukkan private key ke GitHub.
-5. Deploy. Render menyediakan `PORT`; server membaca nilai tersebut otomatis. Setiap push baru ke branch yang terhubung dapat memicu deploy.
+1. Push source ke GitHub. Jangan tambahkan `.env` atau `serviceAccountKey.json`.
+2. Di Vercel pilih **Add New → Project**, impor repository GitHub, lalu pilih branch `main`.
+3. Pilih Framework Preset **Other**. Biarkan Root Directory di root proyek, Output Directory kosong, dan jangan isi Start Command. Vercel akan membangun folder `public/` sebagai frontend dan `api/[...path].js` sebagai function untuk API.
+4. Di **Project → Settings → Environment Variables**, tambahkan `FIREBASE_DATABASE_URL`, `FIREBASE_WEB_API_KEY`, dan `FIREBASE_SERVICE_ACCOUNT_JSON`. Masukkan seluruh JSON key baru sebagai nilai variable rahasia, bukan sebagai file di repository.
+5. Tambahkan `NODE_ENV=production`, lalu deploy. Vercel akan memberi URL; API tersedia pada `/api/health` dan frontend pada `/`.
+6. Untuk deploy berikutnya, push commit baru ke branch yang terhubung. Vercel akan membangun ulang project.
+
+Vercel menjalankan API sebagai serverless function, bukan server `npm start` yang selalu hidup. `npm start` tetap dipakai untuk pengembangan lokal. Firebase Realtime Database dan Authentication tetap menjadi layanan terpisah.
 
 ## API
 
@@ -81,7 +84,7 @@ Buka `http://localhost:3000`. Jika Firebase environment belum diatur, halaman da
 - `PATCH /api/staff/complaints/:code` — pembaruan petugas
 - `DELETE /api/staff/complaints` — penghapusan admin
 
-Sesi petugas menggunakan cookie HTTP-only, Secure pada produksi, SameSite Strict, dan masa berlaku lima hari. Backend memeriksa Firebase session cookie serta role custom claims pada setiap request petugas. CORS tidak dibuka untuk origin lain.
+Sesi petugas menggunakan cookie HTTP-only, Secure pada produksi, SameSite Strict, dan masa berlaku lima hari. Backend memeriksa Firebase session cookie serta role custom claims pada setiap request petugas. CORS tidak dibuka untuk origin lain. Pembatasan percobaan login di memory dapat ter-reset antar-serverless invocation; untuk produksi publik, gunakan penyimpanan rate limit bersama seperti Redis.
 
 ## Batasan dan keamanan
 
